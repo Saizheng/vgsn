@@ -41,10 +41,10 @@ train_x, train_y, test_x, test_y, train_y_onehot, test_y_onehot = \
 
 #1 Hidden Layer, minibatch_size = 1
 def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
-    max_epochs, batch_size, n_batches = 100, 1, num/1
+    max_epochs, batch_size, n_batches = 2000, 100, num/100
 
     nX, nH, nY = 784, 200, 10
-    noise_level = 0.01
+    noise_level = 0.001
     W_x = rand_ortho((nX, nH), np.sqrt(6./(nX +nH)));  B_x = zeros((nH,))
     W_y = rand_ortho((nY, nH), np.sqrt(6./(nY +nH)));  B_y = zeros((nH,))    
     V_x = rand_ortho((nH, nX), np.sqrt(6./(nX +nH)));  C_x = zeros((nX,))
@@ -60,6 +60,11 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
                           sigm(T.dot(x + rng.normal(x.shape, 0, noise_level), W_x) + B_x),
                           sigm(T.dot(y + rng.normal(y.shape, 0, noise_level), W_y) + B_y))
         return h + rng.normal(h.shape, 0, noise_level)
+    
+    def sampleH_givenXYmean(x, y):
+        h = 0.5*(sigm(T.dot(x + rng.normal(x.shape, 0, noise_level), W_x) + B_x) +
+            sigm(T.dot(y + rng.normal(y.shape, 0, noise_level), W_y) + B_y))
+        return h + rng.normal(h.shape, 0, noise_level)
 
     def predY_givenX(x):
         h = sigm(T.dot(x, W_x)+B_x)
@@ -71,7 +76,7 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
     #    y = sigm(T.dot(h, V_y) + C_y)
     #    return y
 
-    H_free = sampleH_givenXY(X, Y)
+    H_free = sampleH_givenXYmean(X, Y)
     H_free_noise = H_free + rng.normal(H_free.shape, 0, noise_level) 
     X_rec_mean = sigm(T.dot(H_free_noise, V_x) + C_x)
     Y_rec_mean = sigm(T.dot(H_free_noise, V_y) + C_y)
@@ -99,14 +104,14 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
         updates=OrderedDict({
             V_x : V_x - __lr_vx*gV_x,  C_x : C_x - __lr_vx*gC_x,
             V_y : V_y - __lr_vy*gV_y,  C_y : C_y - __lr_vy*gC_y,
-            #W_x : W_x - __lr_wx*gW_x,  B_x : B_x - __lr_wx*gB_x,
-            #W_y : W_y - __lr_wy*gW_y,  B_y : B_y - __lr_wy*gB_y, 
+            W_x : W_x - __lr_wx*gW_x,  B_x : B_x - __lr_wx*gB_x,
+            W_y : W_y - __lr_wy*gW_y,  B_y : B_y - __lr_wy*gB_y, 
             })  )
     
     eval_test = theano.function( [i], [err], # make evaluation function for test error
         givens={    X : test_x[ i*1000 : (i+1)*1000 ],
                     #Y : test_y_onehot[ i*1000 : (i+1)*1000 ],
-                    Y_0 : train_y[ i*1000 : (i+1)*1000 ] }  )
+                    Y_0 : test_y[ i*1000 : (i+1)*1000 ] }  )
     
     
     t = time.time(); monitor = { 'train' : [], 'test'  : [] }
@@ -119,4 +124,4 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
             monitor['test'].append( np.array([ eval_test(i)  for i in range(10) ]).mean(axis=0)  )
             print "[%5d] cost =" % (e), monitor['train'][-1], monitor['test'][-1], " %8.2f sec" % (time.time() - t)
 
-exp1(0.05, 0.05, 0.05, 0.05)
+exp1(0.1, 0.1, 0.01, 0.01)
