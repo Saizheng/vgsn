@@ -34,7 +34,7 @@ def onehot(y, label_range):
 (train_x, train_y), (_, _), (test_x, test_y) = np.load('/data/lisatmp3/saizheng/problems/targetprop/mnist.pkl')
 train_y_onehot = onehot(train_y, 10)
 test_y_onehot = onehot(test_y, 10)
-num = 10000
+num = 50000
 num_t = 10000
 train_x, train_y, test_x, test_y, train_y_onehot, test_y_onehot = \
     sharedX(train_x[:num,:]), sharedX(train_y[:num]), sharedX(test_x[:num_t,:]),  sharedX(test_y[:num_t]), sharedX(train_y_onehot[:num]), sharedX(test_y_onehot[:num_t])
@@ -43,8 +43,8 @@ train_x, train_y, test_x, test_y, train_y_onehot, test_y_onehot = \
 def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
     max_epochs, batch_size, n_batches = 2000, 100, num/100
 
-    nX, nH, nY = 784, 200, 10
-    noise_level = 0.001
+    nX, nH, nY = 784, 500, 10
+    noise_level = 0.01
     W_x = rand_ortho((nX, nH), np.sqrt(6./(nX +nH)));  B_x = zeros((nH,))
     W_y = rand_ortho((nY, nH), np.sqrt(6./(nY +nH)));  B_y = zeros((nH,))    
     V_x = rand_ortho((nH, nX), np.sqrt(6./(nX +nH)));  C_x = zeros((nX,))
@@ -62,10 +62,18 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
         return h + rng.normal(h.shape, 0, noise_level)
     
     def sampleH_givenXYmean(x, y):
-        h = 0.5*(sigm(T.dot(x + rng.normal(x.shape, 0, noise_level), W_x) + B_x) +
-            sigm(T.dot(y + rng.normal(y.shape, 0, noise_level), W_y) + B_y))
+        #h = 0.5*(sigm(T.dot(x + rng.normal(x.shape, 0, noise_level), W_x) + B_x) +
+        #    sigm(T.dot(y + rng.normal(y.shape, 0, noise_level), W_y) + B_y))
+        
+        h = sigm(T.dot(x + rng.normal(x.shape, 0, noise_level), W_x) + B_x +
+                 T.dot(y + rng.normal(y.shape, 0, noise_level), W_y) + B_y)
         return h + rng.normal(h.shape, 0, noise_level)
 
+    def sampleXY_givenH(h):
+        x = sigm(T.dot(h + rng.normal(h.shape, 0, noise_level), V_x) + C_x)
+        y = sigm(T.dot(h + rng.normal(h.shape, 0, noise_level), V_y) + C_y)
+        return [x + rng.normal(x.shape, 0, noise_level), y + rng.normal(y.shape, 0, noise_level)]
+ 
     def predY_givenX(x):
         h = sigm(T.dot(x, W_x)+B_x)
         y = predict(sigm(T.dot(h, V_y) + C_y))
@@ -76,24 +84,51 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
     #    y = sigm(T.dot(h, V_y) + C_y)
     #    return y
 
-    H_free = sampleH_givenXYmean(X, Y)
-    H_free_noise = H_free + rng.normal(H_free.shape, 0, noise_level) 
-    X_rec_mean = sigm(T.dot(H_free_noise, V_x) + C_x)
-    Y_rec_mean = sigm(T.dot(H_free_noise, V_y) + C_y)
+    # Denoising Autoencoder reconstruction error
+    H_0 = sampleH_givenXYmean(X, Y) 
+    H_0_noise = H_0 + rng.normal(H_0.shape, 0, noise_level) 
+    X_rec_mean = sigm(T.dot(H_0_noise, V_x) + C_x)
+    Y_rec_mean = sigm(T.dot(H_0_noise, V_y) + C_y)
 
     cost_X_rec = mse(X, X_rec_mean)
     cost_Y_rec = mse(Y, Y_rec_mean)
 
-    cost_H_rec = 0.5*mse(H_free, sigm(T.dot(X + rng.normal(X.shape, 0, noise_level), W_x)+B_x)) + \
-                 0.5*mse(H_free, sigm(T.dot(Y + rng.normal(Y.shape, 0, noise_level), W_y)+B_y))
+    #cost_H_rec = 0.5*mse(H_0, sigm(T.dot(X + rng.normal(X.shape, 0, noise_level), W_x)+B_x)) + \
+    #             0.5*mse(H_0, sigm(T.dot(Y + rng.normal(Y.shape, 0, noise_level), W_y)+B_y))
+    cost_H_rec = mse(H_0, sigm(T.dot(X + rng.normal(X.shape, 0, noise_level), W_x)+B_x + \
+        T.dot(Y + rng.normal(Y.shape, 0, noise_level), W_y)+B_y))
 
-    cost = cost_X_rec + cost_Y_rec + cost_H_rec
+    #cost_H_rec = mse(H_0, 0.5*(sigm(T.dot(X + rng.normal(X.shape, 0, noise_level), W_x) + B_x) +
+    #           sigm(T.dot(Y + rng.normal(Y.shape, 0, noise_level), W_y) + B_y)))
+    
+    #Error which forces P_1(H|X,Y) and P_2(X,Y|H) to be consistent to unique joint P.
+    X_1, Y_1 = sampleXY_givenH(H_0)
+    H_1 = sampleH_givenXYmean(X, Y)
+    H_1_noise = H_1 + rng.normal(H_0.shape, 0, noise_level)
+    X_p_mean = sigm(T.dot(H_1_noise, V_x) + C_x) 
+    Y_p_mean = sigm(T.dot(H_1_noise, V_y) + C_y) 
+
+    cost_X_p = mse(X_1, X_p_mean)
+    cost_Y_p = mse(Y_1, Y_p_mean)
+
+    #cost_H_p = 0.5*mse(H_1, sigm(T.dot(X_1 + rng.normal(X_1.shape, 0, noise_level), W_x)+B_x)) + \
+    #           0.5*mse(H_1, sigm(T.dot(Y_1 + rng.normal(Y_1.shape, 0, noise_level), W_y)+B_y))
+    
+    cost_H_p = mse(H_1, sigm(T.dot(X_1 + rng.normal(X_1.shape, 0, noise_level), W_x)+B_x + \
+        T.dot(Y_1 + rng.normal(Y_1.shape, 0, noise_level), W_y)+B_y))
+
+    #cost_H_p = mse(H_1, 0.5*(sigm(T.dot(X_1 + rng.normal(X_1.shape, 0, noise_level), W_x) + B_x) +
+    #           sigm(T.dot(Y_1 + rng.normal(Y_1.shape, 0, noise_level), W_y) + B_y)))
+    
+    cost = cost_X_rec + cost_Y_rec + cost_H_rec + cost_X_p + cost_Y_p 
     err = error(predY_givenX(X), Y_0)
 
-    gV_x, gC_x = T.grad(cost_X_rec, [V_x, C_x], consider_constant = [H_free_noise])
-    gV_y, gC_y = T.grad(cost_Y_rec, [V_y, C_y], consider_constant = [H_free_noise])
-    gW_x, gB_x = T.grad(cost_H_rec, [W_x, B_x], consider_constant = [H_free])
-    gW_y, gB_y = T.grad(cost_H_rec, [W_y, B_y], consider_constant = [H_free])
+    r1 = 1;
+    r2 = 1;
+    gV_x, gC_x = T.grad(r1*cost_X_rec + r2*cost_X_p, [V_x, C_x], consider_constant = [H_0_noise, H_1_noise])
+    gV_y, gC_y = T.grad(r1*cost_Y_rec + r2*cost_Y_p, [V_y, C_y], consider_constant = [H_0_noise, H_1_noise])
+    gW_x, gB_x = T.grad(r1*cost_H_rec + r2*cost_H_p, [W_x, B_x], consider_constant = [H_0, H_1])
+    gW_y, gB_y = T.grad(r1*cost_H_rec + r2*cost_H_p, [W_y, B_y], consider_constant = [H_0, H_1])
 
     """ Training"""
     i = T.lscalar();
@@ -124,4 +159,4 @@ def exp1(__lr_vx, __lr_vy, __lr_wx, __lr_wy, seed = 27):
             monitor['test'].append( np.array([ eval_test(i)  for i in range(10) ]).mean(axis=0)  )
             print "[%5d] cost =" % (e), monitor['train'][-1], monitor['test'][-1], " %8.2f sec" % (time.time() - t)
 
-exp1(0.1, 0.1, 0.01, 0.01)
+exp1(0.1, 0.1, 0.1, 0.1)
